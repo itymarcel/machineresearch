@@ -1,3 +1,9 @@
+# 0 - snare
+# 1 - kick
+# 2 - hihat
+# 3 - bongo
+# 4 - claps
+# 5 - tambourine
 import os
 import glob
 import matplotlib.pyplot as plt
@@ -9,11 +15,11 @@ import numpy as np
 import pandas as pd
 from tensorflow import keras
 from keras.models import Sequential
-from keras.layers import Dense
+from keras.layers import Dense, Dropout, Activation
 
 def extract_feature(file_name):
     X, sample_rate = librosa.load(file_name)
-    stft = np.abs(librosa.stft(X))
+    #stft = np.abs(librosa.stft(X))
     #mfccs = np.mean(librosa.feature.mfcc(y=X, sr=sample_rate, n_mfcc=40).T,axis=0)
     #chroma = np.mean(librosa.feature.chroma_stft(S=stft, sr=sample_rate).T,axis=0)
     mel = np.mean(librosa.feature.melspectrogram(X, sr=sample_rate).T,axis=0)
@@ -40,13 +46,6 @@ def parse_audio_files(parent_dir,sub_dirs,file_ext='*.wav'):
               continue
     return np.array(features), np.array(labels, dtype = np.int)
 
-def one_hot_encode(labels):
-    n_labels = len(labels) # length of lapels
-    n_unique_labels = len(np.unique(labels)) #number of unique labels
-    one_hot_encode = np.zeros((n_labels,n_unique_labels))
-    one_hot_encode[np.arange(n_labels), labels] = 1
-    return one_hot_encode
-
 def return_number_labels(labels):
     n_labels = len(labels)
     n_unique_labels = len(np.unique(labels))
@@ -61,31 +60,36 @@ ts_sub_dirs = ['ts']
 tr_features, tr_labels = parse_audio_files(parent_dir,tr_sub_dirs)
 ts_features, ts_labels = parse_audio_files(parent_dir,ts_sub_dirs)
 
-#tr_labels = one_hot_encode(tr_labels)
-#ts_labels = one_hot_encode(ts_labels)
+######################### split a song into fragments ###########################
+# def parse_and_split_song(parent_dir,sub_dirs,file_ext='*.wav'):
+##  librosa.effects.split
 
 n_dim = tr_features.shape[1]
 n_classes = return_number_labels(tr_labels)
 
 print(ts_labels)
-yr_binary = keras.utils.to_categorical(tr_labels)
-ys_binary = keras.utils.to_categorical(ts_labels)
+tr_labels_binary = keras.utils.to_categorical(tr_labels)
+ts_labels_binary = keras.utils.to_categorical(ts_labels)
 
 # KERAS
 model = Sequential()
 
-model.add(Dense(units=4, activation='relu', input_dim=n_dim))
-model.add(Dense(units=2, activation='sigmoid'))
+model.add(Dense(units=64, activation='relu', input_dim=n_dim))
+model.add(Dropout(0.5))
+model.add(Dense(32, activation='relu'))
+model.add(Dropout(0.5))
+model.add(Dense(units=n_classes, activation='softmax'))
 
-model.compile(optimizer='sgd',
+model.compile(optimizer='Adam',
               loss='categorical_crossentropy',
               metrics=['accuracy'])
 
 
 
-model.fit(tr_features, yr_binary, epochs=500, batch_size=32)
-loss_and_metrics = model.evaluate(ts_features, ys_binary, batch_size=32)
+model.fit(tr_features, tr_labels_binary, epochs=1000, batch_size=32)
+loss_and_metrics = model.evaluate(ts_features, ts_labels_binary, batch_size=32)
 y_proba = model.predict(ts_features)
+# print('Prob: ', y_proba)
 y_classes = y_proba.argmax(axis=-1)
 print('Pred: ', y_classes)
 print('Labe: ', ts_labels)
