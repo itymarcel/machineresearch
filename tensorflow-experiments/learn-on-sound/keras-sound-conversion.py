@@ -23,14 +23,20 @@ from keras.layers import Dense, Dropout, Activation, Reshape
 from keras.layers import Conv2D, MaxPooling1D, Conv1D, Flatten, LSTM
 from keras.callbacks import TensorBoard
 from sklearn.utils import class_weight
+from vis.visualization import visualize_activation
+from vis.utils import utils
 
 def extract_feature(file_name):
     X, sample_rate = librosa.load(file_name)
-    stft = np.abs(librosa.stft(X))
+    segment = librosa.effects.trim(y=X, top_db=10, frame_length=1024, hop_length=256)
+    audio_time_series = segment[0]
+    stft = np.abs(librosa.stft(audio_time_series))
     #spectrogram = np.mean(librosa.stft(X).T, axis=0)
-    mfccs = np.mean(librosa.feature.mfcc(y=X, sr=sample_rate, n_mfcc=40).T,axis=0)
+    mfccs = np.mean(librosa.feature.mfcc(y=audio_time_series, sr=sample_rate, n_mfcc=40).T,axis=0)
     #chroma = np.mean(librosa.feature.chroma_stft(S=stft, sr=sample_rate).T,axis=0)
-    mel = np.mean(librosa.feature.melspectrogram(X, sr=sample_rate).T,axis=0)
+    #mel = np.mean(librosa.feature.melspectrogram(X, sr=sample_rate).T,axis=0)
+    mel_original = librosa.feature.melspectrogram(audio_time_series, sr=sample_rate).T
+    mel = np.mean(mel_original, axis=0)
     contrast = np.mean(librosa.feature.spectral_contrast(S=stft, sr=sample_rate).T,axis=0)
     # tonnetz = np.mean(librosa.feature.tonnetz(y=librosa.effects.harmonic(X), sr=sample_rate).T,axis=0)
     return mel, contrast, mfccs
@@ -44,7 +50,7 @@ def parse_audio_files(parent_dir,sub_dirs,file_ext='*.wav'):
             try:
               mel, contrast, mfccs = extract_feature(fn)
               ext_features = np.hstack([mel, contrast, mfccs])
-
+              print("EXT FEATURES shape: ", ext_features.shape)
               features = np.vstack([features,ext_features])
               labels = np.append(labels, fn.split('/')[-1].split('-')[0])
               #print(labels)
@@ -96,9 +102,10 @@ print('N Shape: ', tr_features.shape)
 tr_labels_binary = keras.utils.to_categorical(tr_labels)
 ts_labels_binary = keras.utils.to_categorical(ts_labels)
 
-with open('data.txt', 'w') as f:
-  json.dump(ts_features.tolist(), f, ensure_ascii=False)
-exit(0)
+# safe test dataset to JSON formatted text
+#with open('data.txt', 'w') as f:
+#  json.dump(ts_features.tolist(), f, ensure_ascii=False)
+#exit(0)
 
 # KERAS
 model = Sequential()
@@ -108,19 +115,26 @@ tr_features = np.expand_dims(tr_features, axis=2)
 ts_features = np.expand_dims(ts_features, axis=2)
 ## ADDING A Long Short Term Memory (RNN?) Layer with 8 neurons)
 ## ADDING two CNN Layers
-#model.add(Conv1D(8, kernel_size=4, activation="relu", input_shape=(175, 1)))
+model.add(Conv1D(8, kernel_size=16, activation="relu", input_shape=(175, 1)))
 #model.add(MaxPooling1D(3))
-model.add(Conv1D(8, kernel_size=4, activation="relu", input_shape=(175,1)))
-model.add(Conv1D(64, kernel_size=8, activation="relu"))
-model.add(MaxPooling1D(3))
-model.add(LSTM(2, return_sequences=True))
-model.add(Dropout(0.1))
+model.add(Conv1D(16, kernel_size=8, activation="relu"))
+#model.add(MaxPooling1D(3))
+model.add(Conv1D(32, kernel_size=4, activation="relu"))
+#model.add(MaxPooling1D(3))
+#model.add(Conv1D(64, kernel_size=4, activation="relu"))
+#model.add(MaxPooling1D(3))
+#model.add(LSTM(256, return_sequences=True, input_shape=(175,1)))
+#model.add(Dropout(0.1))
+#model.add(LSTM(512, return_sequences=True))
+#model.add(Dropout(0.1))
 model.add(Flatten())
-model.add(Dense(units=128, activation='relu'))
-model.add(Dropout(0.5))
-model.add(Dense(units=128, activation='relu'))
-model.add(Dropout(0.5))
-model.add(Dense(units=n_classes, activation='softmax'))
+#model.add(Dense(256))
+#model.add(Flatten())
+#model.add(Dense(units=128, activation='relu'))
+#model.add(Dropout(0.5))
+#model.add(Dense(units=128, activation='relu'))
+#model.add(Dropout(0.5))
+model.add(Dense(units=n_classes, activation='softmax', name='preds'))
 
 # adam optimizer worked best so far
 model.compile(optimizer='adam',
@@ -138,7 +152,7 @@ class_weights_array = class_weight.compute_class_weight('balanced',
 class_weights = dict(enumerate(class_weights_array))
 print("CLASS WEIGHTS ", class_weights)
 
-model.fit(tr_features, tr_labels_binary, epochs=100, batch_size=32, class_weight=class_weights, callbacks=[tensorboard])
+model.fit(tr_features, tr_labels_binary, epochs=50, batch_size=32, class_weight=class_weights, callbacks=[tensorboard])
 model.save('sound-prediction.h5')
 #tfjs.converters.save_keras_model(model, 'tfjs-model/')
 loss_and_metrics = model.evaluate(ts_features, ts_labels_binary, batch_size=32)
